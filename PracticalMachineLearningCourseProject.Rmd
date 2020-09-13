@@ -1,0 +1,136 @@
+---
+title: "Practical Machine Learning Course Proejct"
+author: "RS"
+date: "13 9 2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+Data Preparation
+
+Load the packages and the training and test data. Create partition with the training data set 
+
+```{r}
+#Load libraries
+library(caret)
+library(corrplot)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(gbm)
+
+# Load training and test data
+myTrain <- read.csv("pml-training.csv")
+myTest <- read.csv("pml-testing.csv")
+
+#Create partition with the training data set 
+inTrain  <- createDataPartition(myTrain$classe, p=0.7, list=FALSE)
+myTrainSet <- myTrain[inTrain, ]
+myTestSet  <- myTrain[-inTrain, ]
+
+dim(myTrainSet)
+dim(myTestSet)
+
+#Remove variables with nearly zero variance AND ariables that are almost always NA
+
+myNZV <- nearZeroVar(myTrainSet)
+myTrainSet <- myTrainSet[, -myNZV]
+myTestSet <- myTestSet[, -myNZV]
+
+myMNA <- sapply(myTrainSet, function(x) mean(is.na(x))) > 0.95
+myTrainSet <- myTrainSet[, myMNA==F]
+myTestSet <- myTestSet[, myMNA==F]
+
+# remove ID only variables: columns 1 - 5
+myTrainSet <- myTrainSet[, -(1:5)]
+myTestSet  <- myTestSet[, -(1:5)]
+
+dim(myTrainSet)
+dim(myTestSet)
+```
+
+## Correlation Analysis
+Perform a correlation analysis among variables before proceeding with the modeling procedure. Correlated variables/predictors are shown in dark colors
+```{r}
+myCorMatrix <- cor(myTrainSet[, -54])
+corrplot(myCorMatrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+```
+
+## Model Evaluation / Building
+I : Decision Trees
+```{r}
+# Fit the model 
+set.seed(12345)
+myDecTreeModel <- rpart(classe ~ ., data=myTrainSet, method="class")
+fancyRpartPlot(myDecTreeModel)
+
+# Perform prediction on test data set
+myDecTreePredict <- predict(myDecTreeModel, newdata=myTestSet, type="class")
+myDecTreeConf <- confusionMatrix(myDecTreePredict, myTestSet$classe)
+myDecTreeConf
+
+# Plot the matrix results
+plot(myDecTreeConf$table, col = myDecTreeConf$byClass, 
+     main = paste("Decision Tree Accuracy =",
+                  round(myDecTreeConf$overall['Accuracy'], 3)))
+
+
+```
+II : Random Forest
+```{r}
+#Fit the model
+
+set.seed(12345)
+myControlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+myRFModFit <- train(classe ~ ., data=myTrainSet, method="rf",
+                          trControl=myControlRF)
+myRFModFit$finalModel
+
+# Perform prediction on test data set
+myRFPredict <- predict(myRFModFit, newdata=myTestSet)
+myRFConf <- confusionMatrix(myRFPredict, myTestSet$classe)
+myRFConf
+
+# Plot the matrix results
+plot(myRFConf$table, col = myRFConf$byClass, 
+     main = paste("Random Forest Accuracy =",
+                  round(myRFConf$overall['Accuracy'], 3)))
+```
+II : Generalized Boosted Model
+```{r}
+#Fit the model
+set.seed(12345)
+myControlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+myGBMmodfit  <- train(classe ~ ., data=myTrainSet, method = "gbm",
+                    trControl = myControlGBM, verbose = FALSE)
+myGBMmodfit$finalModel
+
+#Perform prediction on test data set
+myGBMPrediction <- predict(myGBMmodfit, newdata=myTestSet)
+myGBMconfm <- confusionMatrix(myGBMPrediction, myTestSet$classe)
+myGBMconfm
+
+# Plot the matrix results
+plot(myGBMconfm$table, col = myGBMconfm$byClass, 
+     main = paste("GBM Accuracy =", round(myGBMconfm$overall['Accuracy'], 3)))
+```
+Applying the Selected Model to the Test Data. Since Random forest has best prediction use Random forest
+
+```{r}
+#Random Forest model will be applied 
+myResults <- predict(myRFModFit, newdata=myTestSet)
+myResults
+```
